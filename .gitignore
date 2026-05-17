@@ -1,0 +1,16 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Evaluation outputs — regenerable, and they accumulate; keep them out of the code repo
+results/
+
+# Editor / OS noise
+.ipynb_checkpoints/
+.vscode/
+.DS_Store
+
+# Virtual environments, if any get created inside this folder
+.venv/
+venv/
