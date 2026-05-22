@@ -1,6 +1,6 @@
 """E0_v1.0: zero/few-shot baseline for LLaVA-Med v1.0, multi-dataset.
 
-Runs the v1.0 baseline on VQA-RAD or PathVQA test sets (SLAKE TBD).
+Runs the v1.0 baseline on VQA-RAD, PathVQA, or SLAKE test sets.
 Loads a merged LLaVA-Med v1.0 checkpoint, runs inference, scores with
 v1.0's published method, and writes results + per-question records to disk.
 
@@ -33,6 +33,17 @@ from eval.runner import Runner
 from eval.metrics import score_predictions
 from eval.datasets.vqa_rad import VQARadDataset
 from eval.datasets.path_vqa import PathVQADataset
+from eval.datasets.slake import SlakeDataset
+from eval.methods.baseline import BaselineMethod
+from eval.methods.random_pruning import RandomPruning
+from eval.methods.question_similarity_pruning import QuestionSimilarityPruning
+
+
+METHOD_REGISTRY = {
+    "baseline": lambda kr: BaselineMethod(),
+    "random":   lambda kr: RandomPruning(keep_ratio=kr),
+    "qsim":     lambda kr: QuestionSimilarityPruning(keep_ratio=kr),
+}
 
 
 # === Registry-driven dataset configuration =====================================
@@ -58,6 +69,11 @@ DATASET_REGISTRY = {
         "loader":         PathVQADataset,
         "data_root":      "/data/dan/dataset/path_vqa",
         "candidate_file": str(_V1_ASSETS / "path_vqa_train_open_answers.json"),
+    },
+    "slake": {  
+        "loader":         SlakeDataset,
+        "data_root":      "/data/dan/dataset/slake",
+        "candidate_file": str(_V1_ASSETS / "slake_train_open_answers.json"),
     },
 }
 
@@ -90,6 +106,10 @@ def parse_args():
                    help="Seed for stochastic decoding")
     p.add_argument("--run-id", default=None,
                    help="Override the auto-generated run ID (used in output filenames)")
+    p.add_argument("--method", default="baseline", choices=sorted(METHOD_REGISTRY.keys()),
+                   help="Pruning method to apply. baseline = no pruning.")
+    p.add_argument("--keep-ratio", type=float, default=1.0,
+                   help="Fraction of visual tokens to keep (0, 1]. Ignored for baseline.")
 
     args = p.parse_args()
 
@@ -118,11 +138,16 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # Instantiate the pruning method early so its `.name` is available
+    # for the auto-generated run_id below. The method itself doesn't
+    # touch the model until runner.run() calls .attach() much later.
+    method = METHOD_REGISTRY[args.method](args.keep_ratio)
+
     # Build a run identifier embedding model + dataset + split + timestamp.
-    # The dataset name is in the default run_id (vs hardcoded "vqarad" before)
-    # so outputs from different datasets don't clobber each other.
+    # The method name (e.g. "baseline", "qsim_kr0p50") is in the run_id
+    # so different methods/ratios don't clobber each other's outputs.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_id = args.run_id or f"E0_v1.0_{args.dataset}_{args.split}_{timestamp}"
+    run_id = args.run_id or f"E0_v1.0_{args.dataset}_{method.name}_{args.split}_{timestamp}"
 
     results_dir = Path(args.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -185,7 +210,8 @@ def main():
 
     # === Run inference ======================================================
     log("starting inference...")
-    runner = Runner(loaded, seed=args.seed)
+    log(f"method: {method.name}")
+    runner = Runner(loaded, method=method, seed=args.seed)
     t0 = time.perf_counter()
     predictions = runner.run(samples, progress=True)
     inference_secs = time.perf_counter() - t0
@@ -234,6 +260,7 @@ def main():
             "dataset_root": args.dataset_root,
             "split": args.split,
             "seed": args.seed,
+            "keep_ratio": args.keep_ratio if args.keep_ratio is not None else 1.0,
             "max_samples": args.max_samples,
             "candidate_file": args.candidate_file if not args.skip_open_scoring else None,
             "skip_open_scoring": args.skip_open_scoring,

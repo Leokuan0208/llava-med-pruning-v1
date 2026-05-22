@@ -118,7 +118,7 @@ class Prediction:
 class Runner:
     """Per-sample inference loop for LLaVA-Med v1.0."""
 
-    def __init__(self, loaded: LoadedModel, seed: int = 42):
+    def __init__(self, loaded: LoadedModel, method=None, seed: int = 42):
         """Initialize from a loaded model bundle.
 
         Args:
@@ -139,6 +139,10 @@ class Runner:
         # Cache the conv template lookup. Mutating loaded.conv_mode mid-run
         # would invalidate this, but no caller does that today.
         self.conv_template = conv_templates[self.conv_mode]
+        
+        # Optional pruning method. If provided, it gets attach()'d in run()
+        # and detach()'d at the end. None = unmodified baseline.
+        self.method = method
 
         # Seed torch RNG so stochastic decoding is reproducible within a run.
         # Use a generator-style seed: the global seed is set once, and every
@@ -233,6 +237,12 @@ class Runner:
             Prediction with .text being the model's decoded answer
             (truncated at the first '###' per v1.0's reference).
         """
+        # Tell the pruning method what question is being asked. Methods that
+        # don't care (baseline, random) ignore this; question-aware methods
+        # read it inside their forward hook.
+        if self.method is not None:
+            self.method.set_question(sample.question)
+
         # --- Prompt + image tensor -----------------------------------------
         prompt = self._build_prompt(sample.question)
         images = self._load_image(sample.image_path)
@@ -356,9 +366,19 @@ class Runner:
         else:
             items_iter = items
 
+        # Attach the method (if any) before iteration. Use try/finally so
+        # detach always runs even on exceptions — critical because a
+        # lingering forward hook would corrupt subsequent baseline runs.
+        if self.method is not None:
+            self.method.attach(self.loaded)
+
         predictions: List[Prediction] = []
-        for sample in items_iter:
-            pred = self.predict(sample)
-            predictions.append(pred)
+        try:
+            for sample in items_iter:
+                pred = self.predict(sample)
+                predictions.append(pred)
+        finally:
+            if self.method is not None:
+                self.method.detach(self.loaded)
 
         return predictions
