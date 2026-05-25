@@ -1,3 +1,21 @@
+> **🧊 FROZEN — 2026-05-24**
+>
+> This repository contains the LLaVA-Med v1.0 reproduction work from
+> May 10–21, 2026. The project pivoted to Qwen2.5-VL-7B-Instruct on
+> May 21 after identifying two unreproducibility issues with v1.0: a
+> substring-match bug in the closed-set scorer that inflated reported
+> accuracy, and 0/11 MCQ-letter compliance on an instruction-following
+> smoke test that blocked use of standardized evaluation harnesses.
+> No further commits are planned here.
+>
+> Active project work continues at:
+> **[Leokuan0208/medical-vlm-pruning](https://github.com/Leokuan0208/medical-vlm-pruning)**
+>
+> Day-by-day progress lives on the
+> [project progress site](https://github.com/Leokuan0208/question-aware-vtp-medvlm).
+
+---
+
 # LLaVA-Med Pruning Evaluation & Fine-Tuning Harness (v1.0)
 
 Evaluation and fine-tuning infrastructure for **question-aware visual token
